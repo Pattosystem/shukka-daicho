@@ -152,7 +152,7 @@ table.ledger tfoot td{font-weight:500;background:#faf9f6}
         <span class="count" id="lCount"></span>
       </div>
       <div class="tablewrap"><table class="ledger">
-        <thead><tr><th>発送日</th><th>商品名</th><th>商品管理番号</th><th class="num">数量</th><th class="num">単価</th><th class="num">小計</th><th>配送先</th><th>都道府県</th><th>受注番号</th><th>送り状番号</th></tr></thead>
+        <thead><tr><th>発送日</th><th>商品名</th><th>商品管理番号</th><th class="num">数量</th><th class="num">単価</th><th class="num">小計</th><th>配送先</th><th>都道府県</th><th>受注番号</th><th>送り状番号</th><th></th></tr></thead>
         <tbody id="lBody"></tbody></table>
         <div class="empty hidden" id="lEmpty">該当する出荷はありません</div></div>
     </section>
@@ -167,7 +167,7 @@ table.ledger tfoot td{font-weight:500;background:#faf9f6}
       </div>
       <div id="preview"></div>
       <div class="card"><h3>取込履歴</h3><div class="tablewrap"><table class="ledger">
-        <thead><tr><th>取込日時</th><th>ファイル名</th><th>期間</th><th class="num">行数</th><th class="num">新規</th></tr></thead>
+        <thead><tr><th>取込日時</th><th>ファイル名</th><th>期間</th><th class="num">行数</th><th class="num">新規</th><th></th></tr></thead>
         <tbody id="hBody"></tbody></table></div></div>
     </section>
   </main>
@@ -394,7 +394,15 @@ function drawList() {
   $("#lBody").innerHTML = list.slice(0, 2000).map(r => `<tr>
     <td class="mono">${esc(r.ship_date ?? "")}</td><td class="ell" title="${esc(r.product_name)}">${esc(r.product_name)}</td><td class="mono">${esc(r.product_code ?? "")}</td>
     <td class="num">${fmtN(pieces(r))}</td><td class="num">${fmtN(r.unit_price)}</td><td class="num">${fmtN(r.subtotal)}</td>
-    <td>${esc(r.dest_company || r.customer || "")}</td><td>${esc(r.dest_pref ?? "")}</td><td class="mono">${esc(r.order_no ?? "")}</td><td class="ell">${esc(r.tracking ?? "")}</td></tr>`).join("");
+    <td>${esc(r.dest_company || r.customer || "")}</td><td>${esc(r.dest_pref ?? "")}</td><td class="mono">${esc(r.order_no ?? "")}</td><td class="ell">${esc(r.tracking ?? "")}</td>
+    <td><button class="btn small" data-del="${r.id}">削除</button></td></tr>`).join("");
+  document.querySelectorAll("[data-del]").forEach(b => b.onclick = async () => {
+    const r = ROWS.find(x => x.id === b.dataset.del); if (!r) return;
+    if (!confirm(`${r.ship_date ?? ""}　${r.product_name}　${fmtN(pieces(r))}個（${r.dest_company || r.customer || ""}）\nこの出荷を削除しますか？元に戻せません。`)) return;
+    const { error } = await sb.from("bcart_shipments").delete().eq("id", r.id);
+    if (error) { alert("削除に失敗しました：" + error.message); return; }
+    await loadAll();
+  });
 }
 
 // ---------- CSV取込 ----------
@@ -427,13 +435,17 @@ async function readCsvFile(file) {
     const notShipped = records.filter(r => r.status && r.status !== "発送済").length;
     PENDING = { file, records, fresh: fresh.length, from: dates[0] || null, to: dates[dates.length - 1] || null };
     const prods = new Set(records.map(prodKey)).size;
+    const sameName = HISTORY.filter(h => h.file_name === file.name);
+    const allDup = fresh.length === 0;
     box.innerHTML = `<div class="card"><h3>${esc(file.name)}</h3>
-      <div class="alert info">${records.length} 行（${prods} 商品）／ 期間 ${esc(PENDING.from ?? "")} 〜 ${esc(PENDING.to ?? "")}<br>
-        うち <strong>新しい出荷 ${fresh.length} 行</strong>、登録済み ${records.length - fresh.length} 行（登録済みの行は、送り状番号などを最新の内容に更新します）</div>
+      ${allDup ? `<div class="alert err"><strong>このファイルの出荷は、すべて登録済みです（${records.length} 行とも重複）。</strong><br>取り込んでも件数は増えません。送り状番号の追記など、Bカート側で内容を直した場合だけ「最新の内容で上書きする」を押してください。</div>`
+        : `<div class="alert info">${records.length} 行（${prods} 商品）／ 期間 ${esc(PENDING.from ?? "")} 〜 ${esc(PENDING.to ?? "")}<br>
+        うち <strong>新しい出荷 ${fresh.length} 行</strong>、登録済み ${records.length - fresh.length} 行${records.length - fresh.length ? "（登録済みの行は重複して登録せず、送り状番号などを最新の内容に更新します）" : ""}</div>`}
+      ${sameName.length ? `<div class="alert warn">同じ名前のファイルを ${sameName.map(h => new Date(h.created_at).toLocaleString("ja-JP")).join("、")} に取り込んでいます。</div>` : ""}
       ${noDate ? `<div class="alert warn">発送日・納品日がどちらも空の行が ${noDate} 行あります。月別の集計には入りません。</div>` : ""}
       ${notShipped ? `<div class="alert warn">発送状況が「発送済」以外の行が ${notShipped} 行あります。そのまま取り込みます。</div>` : ""}
       ${skipped.length ? `<div class="alert warn">発送IDまたは商品名が空のため ${skipped.length} 行を読み飛ばしました（${skipped.slice(0, 10).join("、")}行目${skipped.length > 10 ? " など" : ""}）。</div>` : ""}
-      <div class="actions"><button class="btn" id="cancelImp">やめる</button><button class="btn primary" id="doImp">取り込む</button></div></div>`;
+      <div class="actions"><button class="btn${allDup ? " primary" : ""}" id="cancelImp">やめる</button><button class="btn${allDup ? "" : " primary"}" id="doImp">${allDup ? "最新の内容で上書きする" : "取り込む"}</button></div></div>`;
     $("#cancelImp").onclick = () => { PENDING = null; box.innerHTML = ""; };
     $("#doImp").onclick = (e) => doImport(e.target);
   } catch (e) {
@@ -449,12 +461,16 @@ async function doImport(btn) {
       file_name: PENDING.file.name, row_count: PENDING.records.length, new_count: PENDING.fresh, date_from: PENDING.from, date_to: PENDING.to,
     }).select().single();
     if (e1) throw e1;
-    const recs = PENDING.records.map(r => ({ ...r, import_id: imp.id }));
-    for (let i = 0; i < recs.length; i += 500) {
-      const { error } = await sb.from("bcart_shipments").upsert(recs.slice(i, i + 500), { onConflict: "ship_id,line_seq" });
-      if (error) throw error;
+    const keys = new Set(ROWS.map(r => r.ship_id + "|" + r.line_seq));
+    const fresh = PENDING.records.filter(r => !keys.has(r.ship_id + "|" + r.line_seq)).map(r => ({ ...r, import_id: imp.id }));
+    const known = PENDING.records.filter(r => keys.has(r.ship_id + "|" + r.line_seq));
+    for (const part of [fresh, known]) {
+      for (let i = 0; i < part.length; i += 500) {
+        const { error } = await sb.from("bcart_shipments").upsert(part.slice(i, i + 500), { onConflict: "ship_id,line_seq" });
+        if (error) throw error;
+      }
     }
-    $("#preview").innerHTML = `<div class="card"><div class="alert ok">✓ ${PENDING.records.length} 行を取り込みました（新しい出荷 ${PENDING.fresh} 行）</div></div>`;
+    $("#preview").innerHTML = `<div class="card"><div class="alert ok">✓ ${PENDING.fresh ? `新しい出荷 ${PENDING.fresh} 行を登録しました` : "新しい出荷はありませんでした"}（登録済み ${PENDING.records.length - PENDING.fresh} 行は内容を更新）</div></div>`;
     PENDING = null;
     await loadAll();
   } catch (e) {
@@ -463,11 +479,30 @@ async function doImport(btn) {
   }
 }
 
+let HISTORY = [];
 async function loadHistory() {
-  const { data } = await sb.from("bcart_imports").select("*").order("created_at", { ascending: false }).limit(30);
-  $("#hBody").innerHTML = (data || []).map(h => `<tr><td class="mono">${new Date(h.created_at).toLocaleString("ja-JP")}</td><td>${esc(h.file_name ?? "")}</td>
-    <td class="mono">${esc(h.date_from ?? "")} 〜 ${esc(h.date_to ?? "")}</td><td class="num">${fmtN(h.row_count)}</td><td class="num">${fmtN(h.new_count)}</td></tr>`).join("")
-    || `<tr><td colspan="5" class="empty">まだ取り込みはありません</td></tr>`;
+  const { data } = await sb.from("bcart_imports").select("*").order("created_at", { ascending: false }).limit(50);
+  HISTORY = data || [];
+  $("#hBody").innerHTML = HISTORY.map(h => `<tr><td class="mono">${new Date(h.created_at).toLocaleString("ja-JP")}</td><td>${esc(h.file_name ?? "")}</td>
+    <td class="mono">${esc(h.date_from ?? "")} 〜 ${esc(h.date_to ?? "")}</td><td class="num">${fmtN(h.row_count)}</td><td class="num">${fmtN(h.new_count)}</td>
+    <td><button class="btn small" data-undo="${h.id}">取り消す</button></td></tr>`).join("")
+    || `<tr><td colspan="6" class="empty">まだ取り込みはありません</td></tr>`;
+  document.querySelectorAll("[data-undo]").forEach(b => b.onclick = () => undoImport(b.dataset.undo));
+}
+async function undoImport(id) {
+  const h = HISTORY.find(x => x.id === id); if (!h) return;
+  const n = ROWS.filter(r => r.import_id === id).length;
+  const msg = n
+    ? `${new Date(h.created_at).toLocaleString("ja-JP")} の取込（${h.file_name}）を取り消します。\nこの取込で新しく登録された ${n} 行の出荷を削除します。元に戻せません。よろしいですか？`
+    : `${new Date(h.created_at).toLocaleString("ja-JP")} の取込（${h.file_name}）は、新しく登録した行がありません。\n履歴だけを削除します。よろしいですか？`;
+  if (!confirm(msg)) return;
+  if (n) {
+    const { error } = await sb.from("bcart_shipments").delete().eq("import_id", id);
+    if (error) { alert("削除に失敗しました：" + error.message); return; }
+  }
+  const { error } = await sb.from("bcart_imports").delete().eq("id", id);
+  if (error) { alert("履歴の削除に失敗しました：" + error.message); return; }
+  await loadAll();
 }
 
 // ---------- タブ・ログイン ----------
