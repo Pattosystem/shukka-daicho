@@ -1,0 +1,495 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>出荷台帳</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{
+  --bg:#f5f4f0; --panel:#ffffff; --ink:#1d2329; --sub:#5d6670; --line:#dedbd3;
+  --accent:#1f4e79; --accent-soft:#e6eef6;
+  --warn:#9a5b00; --warn-bg:#fff4e0; --err:#a42828; --err-bg:#fdeaea;
+  --ok:#2e6b3a; --ok-bg:#e7f3e9; --muted-bg:#efede8;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans JP",system-ui,sans-serif;font-size:14px}
+button{font:inherit;cursor:pointer}
+input,select,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}
+
+header{background:var(--panel);border-bottom:1px solid var(--line);padding:0 20px;display:flex;align-items:center;gap:24px;height:56px;position:sticky;top:0;z-index:10}
+header h1{font-size:16px;margin:0;letter-spacing:.04em}
+nav{display:flex;gap:4px}
+nav button{background:none;border:none;padding:8px 14px;border-radius:6px;color:var(--sub)}
+nav button.on{background:var(--accent-soft);color:var(--accent);font-weight:700}
+header .who{margin-left:auto;color:var(--sub);font-size:12px;display:flex;gap:10px;align-items:center}
+main{max-width:1400px;margin:0 auto;padding:20px}
+
+.btn{border:1px solid var(--line);background:var(--panel);padding:7px 14px;border-radius:6px}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:500}
+.btn.small{padding:4px 10px;font-size:12px}
+.btn:disabled{opacity:.5;cursor:default}
+
+#login{max-width:360px;margin:12vh auto;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:28px}
+#login h2{margin:0 0 18px;font-size:18px}
+#login label{display:block;font-size:12px;color:var(--sub);margin:12px 0 4px}
+#login input{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:6px}
+#login .btn{width:100%;margin-top:18px}
+#loginErr{color:var(--err);font-size:12px;margin-top:10px}
+
+#drop{border:2px dashed #b9c4cf;border-radius:10px;background:var(--panel);padding:36px;text-align:center;color:var(--sub);transition:.15s}
+#drop.over{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+#drop strong{display:block;font-size:16px;color:var(--ink);margin-bottom:6px}
+#drop .row{margin-top:14px;display:flex;gap:8px;justify-content:center}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;margin-top:18px;padding:16px}
+.card h3{margin:0 0 8px;font-size:15px}
+.alert{padding:8px 10px;border-radius:6px;font-size:12px;line-height:1.5;margin-top:6px}
+.alert.info{background:var(--accent-soft);color:var(--accent)}
+.alert.warn{background:var(--warn-bg);color:var(--warn)}
+.alert.err{background:var(--err-bg);color:var(--err)}
+.alert.ok{background:var(--ok-bg);color:var(--ok)}
+.actions{display:flex;gap:8px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
+.toolbar input,.toolbar select{padding:7px 10px;border:1px solid var(--line);border-radius:6px;background:#fff}
+.toolbar input[type=search]{min-width:240px}
+.toolbar .count{color:var(--sub);font-size:12px;margin-left:auto}
+.tablewrap{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:auto}
+table.ledger{width:100%;border-collapse:collapse;font-size:13px}
+table.ledger th{position:sticky;top:0;background:#faf9f6;text-align:left;font-weight:500;color:var(--sub);font-size:11px;padding:9px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+table.ledger th.num, table.ledger td.num{text-align:right}
+table.ledger td{padding:9px 10px;border-bottom:1px solid #eeece6;white-space:nowrap}
+table.ledger tr.click:hover td{background:#fbfaf7;cursor:pointer}
+table.ledger td.zero{color:#c3c0b8}
+table.ledger td.cur{background:#f7f9fb}
+table.ledger tfoot td{font-weight:500;background:#faf9f6}
+.mono{font-family:var(--mono)}
+.num{font-family:var(--mono)}
+.ell{max-width:340px;overflow:hidden;text-overflow:ellipsis}
+.sub{color:var(--sub);font-size:11px}
+.empty{padding:40px;text-align:center;color:var(--sub)}
+.up{color:var(--ok)} .down{color:var(--err)}
+
+.bars{display:flex;align-items:flex-end;gap:6px;height:160px;padding:10px 4px 0;border-bottom:1px solid var(--line)}
+.bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%}
+.bar .b{width:100%;max-width:42px;background:var(--accent);border-radius:3px 3px 0 0;min-height:1px}
+.bar .v{font-family:var(--mono);font-size:11px;margin-bottom:3px}
+.barlbl{display:flex;gap:6px;padding:4px}
+.barlbl span{flex:1;text-align:center;font-size:11px;color:var(--sub)}
+
+#modal{position:fixed;inset:0;background:rgba(20,25,30,.45);display:flex;align-items:flex-start;justify-content:center;padding:4vh 16px;z-index:50;overflow:auto}
+#modal .box{background:var(--panel);border-radius:10px;width:min(1040px,100%);padding:22px}
+#modal h3{margin:0 0 4px;font-size:17px}
+#modal .meta{color:var(--sub);font-size:12px;margin-bottom:6px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:12px 0}
+.kpi{border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.kpi .l{font-size:11px;color:var(--sub)} .kpi .v{font-family:var(--mono);font-size:20px;margin-top:2px}
+.sec{border-top:1px solid var(--line);margin-top:16px;padding-top:4px}
+.sec h4{margin:12px 0 8px;font-size:13px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;vertical-align:-2px;margin-right:6px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media (max-width:860px){
+  .kpis{grid-template-columns:1fr 1fr}
+  header{gap:12px;padding:0 12px}
+  main{padding:16px}
+}
+</style>
+</head>
+<body>
+
+<section id="login" class="hidden">
+  <h2>出荷台帳</h2>
+  <label>メールアドレス</label><input id="email" type="email" autocomplete="username">
+  <label>パスワード</label><input id="pw" type="password" autocomplete="current-password">
+  <button class="btn primary" id="loginBtn">ログイン</button>
+  <div id="loginErr"></div>
+</section>
+
+<div id="app" class="hidden">
+  <header>
+    <h1>出荷台帳</h1>
+    <nav>
+      <button data-tab="prod" class="on">商品別</button>
+      <button data-tab="list">出荷明細</button>
+      <button data-tab="import">CSV取込</button>
+    </nav>
+    <div class="who"><span id="userEmail"></span><button class="btn" id="logoutBtn">ログアウト</button></div>
+  </header>
+
+  <main>
+    <!-- 商品別 -->
+    <section id="tab-prod">
+      <div class="toolbar">
+        <input type="search" id="pq" placeholder="商品名・商品管理番号で検索">
+        <select id="pMonths">
+          <option value="6" selected>直近6か月</option>
+          <option value="12">直近12か月</option>
+          <option value="3">直近3か月</option>
+        </select>
+        <select id="pSort">
+          <option value="total">期間合計の多い順</option>
+          <option value="recent">直近4週の多い順</option>
+          <option value="name">商品名順</option>
+        </select>
+        <button class="btn" id="pCsv">CSV出力</button>
+        <span class="count" id="pCount"></span>
+      </div>
+      <div class="tablewrap"><table class="ledger" id="pTable"></table>
+        <div class="empty hidden" id="pEmpty">まだ出荷データがありません。「CSV取込」タブからBカートの出荷CSVを取り込んでください。</div></div>
+      <div class="sub" style="margin-top:8px">数量は「受注数×入数」です。発送日が空の行は納品日で数えています。月平均は、表示期間のうち出荷データがある月の平均です。</div>
+    </section>
+
+    <!-- 出荷明細 -->
+    <section id="tab-list" class="hidden">
+      <div class="toolbar">
+        <input type="search" id="lq" placeholder="商品名・配送先・受注番号・送り状番号で検索">
+        <input type="month" id="lMonth" title="発送月">
+        <span class="count" id="lCount"></span>
+      </div>
+      <div class="tablewrap"><table class="ledger">
+        <thead><tr><th>発送日</th><th>商品名</th><th>商品管理番号</th><th class="num">数量</th><th class="num">単価</th><th class="num">小計</th><th>配送先</th><th>都道府県</th><th>受注番号</th><th>送り状番号</th></tr></thead>
+        <tbody id="lBody"></tbody></table>
+        <div class="empty hidden" id="lEmpty">該当する出荷はありません</div></div>
+    </section>
+
+    <!-- CSV取込 -->
+    <section id="tab-import" class="hidden">
+      <div id="drop">
+        <strong>ここにBカートの出荷CSVをドラッグ＆ドロップ</strong>
+        期間が重なっていても大丈夫です。同じ出荷（発送ID＋受注内連番）は1回だけ登録されます。
+        <div class="row"><button class="btn" id="pickBtn">ファイルを選ぶ</button></div>
+        <input type="file" id="fileInput" accept=".csv,text/csv" class="hidden">
+      </div>
+      <div id="preview"></div>
+      <div class="card"><h3>取込履歴</h3><div class="tablewrap"><table class="ledger">
+        <thead><tr><th>取込日時</th><th>ファイル名</th><th>期間</th><th class="num">行数</th><th class="num">新規</th></tr></thead>
+        <tbody id="hBody"></tbody></table></div></div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="hidden"><div class="box" id="modalBox"></div></div>
+
+<script>
+// =========================================================
+// 設定（ほかの台帳と同じSupabaseプロジェクト。使う表は出荷台帳専用）
+// =========================================================
+const SUPABASE_URL = "https://dunfssyisxywxfcblgdg.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1bmZzc3lpc3h5d3hmY2JsZ2RnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMwNjYwODEsImV4cCI6MjEwODY0MjA4MX0.pWqKvj7sLg9z3rjSGKqPPl7YLi-FFKDcuoFlDCLkZck";
+// =========================================================
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = (s, el = document) => el.querySelector(s);
+const esc = (v) => String(v ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const toNum = (v) => { if (v === "" || v == null) return null; const n = Number(String(v).replace(/,/g, "")); return isNaN(n) ? null : n; };
+const fmtN = (n, d = 0) => n == null ? "" : Number(n).toLocaleString("ja-JP", { maximumFractionDigits: d });
+const normA = (s) => String(s ?? "").toUpperCase().replace(/[\s　]+/g, "");
+const ymd = (d) => d.toLocaleDateString("sv-SE");
+
+// ---------- CSV（改行入りの項目・""の中の"に対応） ----------
+function parseCsv(text) {
+  const rows = []; let row = [], f = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { f += '"'; i++; } else q = false; }
+      else f += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(f); f = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(f); f = ""; if (row.some(x => x !== "")) rows.push(row); row = [];
+    } else f += c;
+  }
+  if (f !== "" || row.length) { row.push(f); if (row.some(x => x !== "")) rows.push(row); }
+  return rows;
+}
+
+// Bカート出荷CSV → 出荷台帳の行
+const REQUIRED = ["Bカート発送ID", "受注内連番", "商品名", "受注数"];
+function csvToRecords(rows) {
+  const h = rows[0].map(x => x.replace(/^﻿/, "").trim());
+  const miss = REQUIRED.filter(k => !h.includes(k));
+  if (miss.length) throw new Error("Bカートの出荷CSVではないようです（見つからない列：" + miss.join("、") + "）");
+  const g = (r, k) => { const i = h.indexOf(k); return i < 0 ? "" : String(r[i] ?? "").trim(); };
+  const d = (s) => /^\d{4}-\d{2}-\d{2}/.test(s) ? s.slice(0, 10) : (/^\d{4}\/\d{1,2}\/\d{1,2}/.test(s) ? s.replace(/\//g, "-").replace(/-(\d)(?=-|$)/g, "-0$1").slice(0, 10) : null);
+  const out = [], skipped = [];
+  rows.slice(1).forEach((r, i) => {
+    const ship_id = g(r, "Bカート発送ID"), line_seq = g(r, "受注内連番"), name = g(r, "商品名");
+    if (!ship_id || !name) { skipped.push(i + 2); return; }
+    const sd = d(g(r, "発送日")), dd = d(g(r, "納品日"));
+    out.push({
+      ship_id, line_seq: line_seq || "0",
+      ship_date: sd || dd, delivery_date: dd,
+      status: g(r, "発送状況") || null,
+      tracking: g(r, "送り状番号") || null,
+      dest_company: g(r, "配送先 会社名") || g(r, "会社名") || null,
+      dest_person: g(r, "配送先 担当者") || g(r, "担当者") || null,
+      dest_pref: g(r, "配送先 都道府県") || g(r, "都道府県") || null,
+      product_code: g(r, "商品管理番号") || g(r, "品番") || null,
+      product_name: name.replace(/\s+/g, " "),
+      irisu: toNum(g(r, "入数")), unit: g(r, "単位") || null,
+      qty: toNum(g(r, "受注数")), unit_price: toNum(g(r, "単価")), subtotal: toNum(g(r, "小計")),
+      order_no: g(r, "受注番号") || null, customer: g(r, "会社名") || null,
+    });
+  });
+  // 同じファイル内の重複は最後の行を使う
+  const map = new Map(); out.forEach(x => map.set(x.ship_id + "|" + x.line_seq, x));
+  return { records: [...map.values()], skipped };
+}
+
+// ---------- 集計 ----------
+const pieces = (r) => (r.qty ?? 0) * (r.irisu && r.irisu > 0 ? r.irisu : 1);
+const prodKey = (r) => r.product_code ? "C:" + normA(r.product_code) : "N:" + normA(r.product_name);
+function monthList(n, today = new Date()) {
+  const out = [];
+  for (let i = n - 1; i >= 0; i--) { const d = new Date(today.getFullYear(), today.getMonth() - i, 1); out.push(ymd(d).slice(0, 7)); }
+  return out;
+}
+function aggregate(rows, months, today = new Date()) {
+  const since4w = ymd(new Date(today.getTime() - 27 * 86400000));
+  const prev4wFrom = ymd(new Date(today.getTime() - 55 * 86400000));
+  const map = new Map();
+  rows.forEach(r => {
+    const k = prodKey(r);
+    let p = map.get(k);
+    if (!p) { p = { key: k, code: r.product_code, name: r.product_name, unit: r.unit, lastDate: "", byMonth: {}, recent: 0, prev: 0, total: 0, amount: 0, rows: [] }; map.set(k, p); }
+    const dt = r.ship_date || "";
+    if (dt >= p.lastDate) { p.lastDate = dt; p.name = r.product_name; p.unit = r.unit || p.unit; }
+    const m = dt.slice(0, 7), n = pieces(r);
+    p.byMonth[m] = (p.byMonth[m] || 0) + n;
+    if (months.includes(m)) { p.total += n; p.amount += r.subtotal ?? 0; }
+    if (dt >= since4w) p.recent += n;
+    else if (dt >= prev4wFrom) p.prev += n;
+    p.rows.push(r);
+  });
+  const monthsWithData = months.filter(m => rows.some(r => (r.ship_date || "").startsWith(m)));
+  map.forEach(p => { p.avg = monthsWithData.length ? p.total / monthsWithData.length : 0; });
+  return [...map.values()];
+}
+
+// ---------- データ読み込み（1000行ずつ全部） ----------
+let ROWS = [];
+async function fetchAll(table, select, order) {
+  const out = []; const size = 1000;
+  for (let from = 0; ; from += size) {
+    let q = sb.from(table).select(select).range(from, from + size - 1);
+    if (order) q = q.order(order, { ascending: false });
+    const { data, error } = await q;
+    if (error) throw error;
+    out.push(...data);
+    if (data.length < size) break;
+  }
+  return out;
+}
+async function loadAll() {
+  $("#pCount").innerHTML = '<span class="spinner"></span>読み込み中…';
+  try {
+    ROWS = await fetchAll("bcart_shipments", "*", "ship_date");
+  } catch (e) { $("#pCount").textContent = ""; alert("読み込みに失敗しました：" + e.message); return; }
+  drawProducts(); drawList(); loadHistory();
+}
+
+// ---------- 商品別 ----------
+let AGG = [], MONTHS = [];
+["pq", "pMonths", "pSort"].forEach(id => $("#" + id).addEventListener("input", drawProducts));
+function drawProducts() {
+  MONTHS = monthList(Number($("#pMonths").value));
+  AGG = aggregate(ROWS, MONTHS);
+  const q = normA($("#pq").value), sort = $("#pSort").value;
+  let list = AGG.filter(p => !q || normA(p.name + " " + (p.code || "")).includes(q));
+  list.sort(sort === "name" ? (a, b) => a.name.localeCompare(b.name, "ja")
+    : sort === "recent" ? (a, b) => b.recent - a.recent || b.total - a.total
+    : (a, b) => b.total - a.total || b.recent - a.recent);
+  $("#pCount").textContent = `${list.length} 商品`;
+  $("#pEmpty").classList.toggle("hidden", ROWS.length > 0);
+  const cur = ymd(new Date()).slice(0, 7);
+  const trend = (p) => {
+    if (!p.prev && !p.recent) return "";
+    if (!p.prev) return `<span class="up">新規</span>`;
+    const r = Math.round((p.recent - p.prev) / p.prev * 100);
+    return r === 0 ? "±0%" : `<span class="${r > 0 ? "up" : "down"}">${r > 0 ? "+" : ""}${r}%</span>`;
+  };
+  const colTotals = MONTHS.map(m => list.reduce((a, p) => a + (p.byMonth[m] || 0), 0));
+  $("#pTable").innerHTML = ROWS.length ? `
+    <thead><tr><th>商品名</th><th>商品管理番号</th>
+      ${MONTHS.map(m => `<th class="num">${Number(m.slice(5))}月${m === cur ? "（途中）" : ""}<div class="sub">${m.slice(0, 4)}</div></th>`).join("")}
+      <th class="num">期間合計</th><th class="num">月平均</th><th class="num">直近4週</th><th class="num">前の4週比</th><th>最終出荷日</th></tr></thead>
+    <tbody>${list.map(p => `<tr class="click" data-k="${esc(p.key)}">
+      <td class="ell" title="${esc(p.name)}">${esc(p.name)}</td><td class="mono">${esc(p.code ?? "")}</td>
+      ${MONTHS.map(m => `<td class="num ${p.byMonth[m] ? "" : "zero"} ${m === cur ? "cur" : ""}">${fmtN(p.byMonth[m] || 0)}</td>`).join("")}
+      <td class="num"><strong>${fmtN(p.total)}</strong></td><td class="num">${fmtN(p.avg, 1)}</td>
+      <td class="num">${fmtN(p.recent)}</td><td class="num">${trend(p)}</td><td class="mono">${esc(p.lastDate)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td>合計</td><td></td>${colTotals.map(t => `<td class="num">${fmtN(t)}</td>`).join("")}
+      <td class="num">${fmtN(list.reduce((a, p) => a + p.total, 0))}</td><td></td><td class="num">${fmtN(list.reduce((a, p) => a + p.recent, 0))}</td><td></td><td></td></tr></tfoot>` : "";
+  document.querySelectorAll("#pTable tbody tr").forEach(tr => tr.onclick = () => openProduct(tr.dataset.k));
+}
+
+function openProduct(key) {
+  const p = AGG.find(x => x.key === key); if (!p) return;
+  const months12 = monthList(12);
+  const vals = months12.map(m => p.byMonth[m] || 0), max = Math.max(1, ...vals);
+  const rows = [...p.rows].sort((a, b) => (b.ship_date || "").localeCompare(a.ship_date || ""));
+  const byCust = {};
+  rows.forEach(r => { const c = r.dest_company || r.customer || "（不明）"; byCust[c] = (byCust[c] || 0) + pieces(r); });
+  const topCust = Object.entries(byCust).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const weekly = p.recent / 4;
+  $("#modalBox").innerHTML = `
+    <h3>${esc(p.name)}</h3>
+    <div class="meta">${p.code ? "商品管理番号 " + esc(p.code) + "　/　" : ""}単位：${esc(p.unit ?? "")}　/　最終出荷日 ${esc(p.lastDate)}</div>
+    <div class="kpis">
+      <div class="kpi"><div class="l">直近4週の出荷数</div><div class="v">${fmtN(p.recent)}</div></div>
+      <div class="kpi"><div class="l">1週あたり（直近4週の平均）</div><div class="v">${fmtN(weekly, 1)}</div></div>
+      <div class="kpi"><div class="l">月平均（表示期間）</div><div class="v">${fmtN(p.avg, 1)}</div></div>
+      <div class="kpi"><div class="l">これまでの出荷合計</div><div class="v">${fmtN(rows.reduce((a, r) => a + pieces(r), 0))}</div></div>
+    </div>
+    <div class="sec"><h4>月別の出荷数（直近12か月）</h4>
+      <div class="bars">${vals.map(v => `<div class="bar"><div class="v">${v ? fmtN(v) : ""}</div><div class="b" style="height:${v / max * 120}px"></div></div>`).join("")}</div>
+      <div class="barlbl">${months12.map(m => `<span>${Number(m.slice(5))}月</span>`).join("")}</div>
+    </div>
+    <div class="sec"><h4>出荷先（多い順・上位10）</h4>
+      <div class="tablewrap"><table class="ledger"><tbody>${topCust.map(([c, n]) => `<tr><td>${esc(c)}</td><td class="num">${fmtN(n)}</td></tr>`).join("")}</tbody></table></div>
+    </div>
+    <div class="sec"><h4>出荷履歴（${rows.length}件）</h4>
+      <div class="tablewrap" style="max-height:360px"><table class="ledger">
+        <thead><tr><th>発送日</th><th class="num">数量</th><th class="num">単価</th><th>配送先</th><th>都道府県</th><th>受注番号</th><th>送り状番号</th></tr></thead>
+        <tbody>${rows.map(r => `<tr><td class="mono">${esc(r.ship_date ?? "")}</td><td class="num">${fmtN(pieces(r))}</td><td class="num">${fmtN(r.unit_price)}</td>
+          <td>${esc(r.dest_company || r.customer || "")}</td><td>${esc(r.dest_pref ?? "")}</td><td class="mono">${esc(r.order_no ?? "")}</td><td class="ell">${esc(r.tracking ?? "")}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </div>
+    <div class="actions"><button class="btn" id="mClose">閉じる</button></div>`;
+  $("#modal").classList.remove("hidden");
+  $("#mClose").onclick = closeModal;
+}
+function closeModal() { $("#modal").classList.add("hidden"); }
+$("#modal").addEventListener("click", e => { if (e.target.id === "modal") closeModal(); });
+
+$("#pCsv").onclick = () => {
+  const cur = AGG.filter(p => p.total || p.recent);
+  const head = ["商品名", "商品管理番号", ...MONTHS.map(m => m), "期間合計", "月平均", "直近4週", "最終出荷日"];
+  const lines = [head, ...cur.sort((a, b) => b.total - a.total).map(p => [p.name, p.code, ...MONTHS.map(m => p.byMonth[m] || 0), p.total, Math.round(p.avg * 10) / 10, p.recent, p.lastDate])];
+  downloadCsv(lines, `商品別出荷数_${ymd(new Date())}.csv`);
+};
+function downloadCsv(lines, name) {
+  const csv = lines.map(l => l.map(c => `"${String(c ?? "").replace(/"/g, '""')}"`).join(",")).join("\r\n");
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv" }));
+  a.download = name; a.click();
+}
+
+// ---------- 出荷明細 ----------
+["lq", "lMonth"].forEach(id => $("#" + id).addEventListener("input", drawList));
+function drawList() {
+  const q = normA($("#lq").value), m = $("#lMonth").value;
+  const list = ROWS.filter(r => (!m || (r.ship_date || "").startsWith(m)) &&
+    (!q || normA([r.product_name, r.product_code, r.dest_company, r.customer, r.order_no, r.tracking].join(" ")).includes(q)))
+    .sort((a, b) => (b.ship_date || "").localeCompare(a.ship_date || ""));
+  $("#lCount").textContent = `${list.length} 件`;
+  $("#lEmpty").classList.toggle("hidden", list.length > 0);
+  $("#lBody").innerHTML = list.slice(0, 2000).map(r => `<tr>
+    <td class="mono">${esc(r.ship_date ?? "")}</td><td class="ell" title="${esc(r.product_name)}">${esc(r.product_name)}</td><td class="mono">${esc(r.product_code ?? "")}</td>
+    <td class="num">${fmtN(pieces(r))}</td><td class="num">${fmtN(r.unit_price)}</td><td class="num">${fmtN(r.subtotal)}</td>
+    <td>${esc(r.dest_company || r.customer || "")}</td><td>${esc(r.dest_pref ?? "")}</td><td class="mono">${esc(r.order_no ?? "")}</td><td class="ell">${esc(r.tracking ?? "")}</td></tr>`).join("");
+}
+
+// ---------- CSV取込 ----------
+const drop = $("#drop");
+["dragenter", "dragover"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => { if (e.dataTransfer.files[0]) readCsvFile(e.dataTransfer.files[0]); });
+$("#pickBtn").onclick = () => $("#fileInput").click();
+$("#fileInput").onchange = e => { if (e.target.files[0]) readCsvFile(e.target.files[0]); e.target.value = ""; };
+
+async function decodeFile(file) {
+  const buf = await file.arrayBuffer();
+  const utf = new TextDecoder("utf-8", { fatal: false }).decode(buf);
+  if (utf.includes("Bカート発送ID")) return utf;
+  return new TextDecoder("shift_jis").decode(buf);   // Bカートの標準はShift-JIS
+}
+
+let PENDING = null;
+async function readCsvFile(file) {
+  const box = $("#preview");
+  box.innerHTML = `<div class="card"><span class="spinner"></span>読み込み中…</div>`;
+  try {
+    const text = await decodeFile(file);
+    const { records, skipped } = csvToRecords(parseCsv(text));
+    if (!records.length) throw new Error("取り込める行がありません");
+    const keys = new Set(ROWS.map(r => r.ship_id + "|" + r.line_seq));
+    const fresh = records.filter(r => !keys.has(r.ship_id + "|" + r.line_seq));
+    const dates = records.map(r => r.ship_date).filter(Boolean).sort();
+    const noDate = records.filter(r => !r.ship_date).length;
+    const notShipped = records.filter(r => r.status && r.status !== "発送済").length;
+    PENDING = { file, records, fresh: fresh.length, from: dates[0] || null, to: dates[dates.length - 1] || null };
+    const prods = new Set(records.map(prodKey)).size;
+    box.innerHTML = `<div class="card"><h3>${esc(file.name)}</h3>
+      <div class="alert info">${records.length} 行（${prods} 商品）／ 期間 ${esc(PENDING.from ?? "")} 〜 ${esc(PENDING.to ?? "")}<br>
+        うち <strong>新しい出荷 ${fresh.length} 行</strong>、登録済み ${records.length - fresh.length} 行（登録済みの行は、送り状番号などを最新の内容に更新します）</div>
+      ${noDate ? `<div class="alert warn">発送日・納品日がどちらも空の行が ${noDate} 行あります。月別の集計には入りません。</div>` : ""}
+      ${notShipped ? `<div class="alert warn">発送状況が「発送済」以外の行が ${notShipped} 行あります。そのまま取り込みます。</div>` : ""}
+      ${skipped.length ? `<div class="alert warn">発送IDまたは商品名が空のため ${skipped.length} 行を読み飛ばしました（${skipped.slice(0, 10).join("、")}行目${skipped.length > 10 ? " など" : ""}）。</div>` : ""}
+      <div class="actions"><button class="btn" id="cancelImp">やめる</button><button class="btn primary" id="doImp">取り込む</button></div></div>`;
+    $("#cancelImp").onclick = () => { PENDING = null; box.innerHTML = ""; };
+    $("#doImp").onclick = (e) => doImport(e.target);
+  } catch (e) {
+    box.innerHTML = `<div class="card"><div class="alert err">読み込めませんでした：${esc(e.message)}</div></div>`;
+  }
+}
+
+async function doImport(btn) {
+  if (!PENDING) return;
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>取り込み中…';
+  try {
+    const { data: imp, error: e1 } = await sb.from("bcart_imports").insert({
+      file_name: PENDING.file.name, row_count: PENDING.records.length, new_count: PENDING.fresh, date_from: PENDING.from, date_to: PENDING.to,
+    }).select().single();
+    if (e1) throw e1;
+    const recs = PENDING.records.map(r => ({ ...r, import_id: imp.id }));
+    for (let i = 0; i < recs.length; i += 500) {
+      const { error } = await sb.from("bcart_shipments").upsert(recs.slice(i, i + 500), { onConflict: "ship_id,line_seq" });
+      if (error) throw error;
+    }
+    $("#preview").innerHTML = `<div class="card"><div class="alert ok">✓ ${PENDING.records.length} 行を取り込みました（新しい出荷 ${PENDING.fresh} 行）</div></div>`;
+    PENDING = null;
+    await loadAll();
+  } catch (e) {
+    alert("取り込みに失敗しました：" + (e.message || e));
+    btn.disabled = false; btn.textContent = "取り込む";
+  }
+}
+
+async function loadHistory() {
+  const { data } = await sb.from("bcart_imports").select("*").order("created_at", { ascending: false }).limit(30);
+  $("#hBody").innerHTML = (data || []).map(h => `<tr><td class="mono">${new Date(h.created_at).toLocaleString("ja-JP")}</td><td>${esc(h.file_name ?? "")}</td>
+    <td class="mono">${esc(h.date_from ?? "")} 〜 ${esc(h.date_to ?? "")}</td><td class="num">${fmtN(h.row_count)}</td><td class="num">${fmtN(h.new_count)}</td></tr>`).join("")
+    || `<tr><td colspan="5" class="empty">まだ取り込みはありません</td></tr>`;
+}
+
+// ---------- タブ・ログイン ----------
+document.querySelectorAll("nav button").forEach(b => b.onclick = () => {
+  document.querySelectorAll("nav button").forEach(x => x.classList.toggle("on", x === b));
+  ["prod", "list", "import"].forEach(t => $("#tab-" + t).classList.toggle("hidden", t !== b.dataset.tab));
+});
+async function boot() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) showApp(session.user); else $("#login").classList.remove("hidden");
+}
+$("#loginBtn").onclick = async () => {
+  $("#loginErr").textContent = "";
+  const { data, error } = await sb.auth.signInWithPassword({ email: $("#email").value.trim(), password: $("#pw").value });
+  if (error) { $("#loginErr").textContent = "ログインできませんでした。メールアドレスとパスワードを確認してください。"; return; }
+  $("#login").classList.add("hidden"); showApp(data.user);
+};
+$("#pw").addEventListener("keydown", e => { if (e.key === "Enter") $("#loginBtn").click(); });
+$("#logoutBtn").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+function showApp(user) { $("#userEmail").textContent = user.email; $("#app").classList.remove("hidden"); loadAll(); }
+
+boot();
+</script>
+</body>
+</html>
